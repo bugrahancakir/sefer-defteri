@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sefer Defteri</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="giris" hidden></div>
+<div class="app" id="app" hidden>
+  <aside class="side">
+    <div class="brand">Sefer Defteri<small id="firma">Filo, sefer ve cari kayıtları</small></div>
+    <nav class="nav" id="nav" aria-label="Bölümler"></nav>
+    <div class="ben"><span id="kim"></span><span><button class="bag" data-a="sifre">Şifre</button><button class="bag" data-a="cikis">Çıkış</button></span></div>
+  </aside>
+  <main><div class="wrap" id="view"></div></main>
+</div>
+<dialog id="dlg"></dialog>
+<div id="toasts" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
