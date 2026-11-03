@@ -1,0 +1,67 @@
+import {spawn} from 'node:child_process';import http from 'node:http';import assert from 'node:assert/strict';import {rmSync} from 'node:fs';
+const DB=(process.env.TMPDIR||'/tmp')+'/sefer-test.db';rmSync(DB,{force:true});
+const fake=http.createServer((q,s)=>{s.setHeader('content-type','application/json');if(q.headers['mobiliz-token']!=='gizli-anahtar-123'){s.statusCode=401;return s.end('{}')}s.end(JSON.stringify({success:true,result:[{plate:'34 ABC 101',location:{latitude:40.7,longitude:30.4},speed:75,eventTime:new Date().toISOString(),address:'Sakarya'}]}))}).listen(9911);
+const sv=spawn('node',['dev/server.mjs'],{env:{...process.env,PORT:'8799',VERI_DOSYASI:DB,MOBILIZ_BASE:'http://127.0.0.1:9911'},stdio:'inherit'});
+await new Promise(r=>setTimeout(r,800));
+const B='http://127.0.0.1:8799/api';
+class C{ck='';async r(y,m='GET',b){const res=await fetch(B+y,{method:m,headers:{...(b!==undefined?{'content-type':'application/json'}:{}),cookie:this.ck},body:b!==undefined?JSON.stringify(b):undefined});const sc=res.headers.get('set-cookie');if(sc)this.ck=sc.split(';')[0];const t=await res.text();return{s:res.status,t,j:t?JSON.parse(t):{}}}
+ put(c,i,d){return this.r(`/k/${c}/${i}`,'PUT',d)}}
+let n=0;const ok=(k,m)=>{assert.ok(k,m);n++;console.log('  ✓',m)};
+try{
+const y=new C();ok((await y.r('/durum')).j.ilk,'ilk kurulum açık');
+ok((await y.r('/sync')).s===401,'girişsiz veri yok');
+ok((await y.r('/kurulum','POST',{ad:'Bugra',kadi:'bugra',sifre:'kisa'})).s===400,'kısa şifre reddi');
+ok((await y.r('/kurulum','POST',{ad:'Bugra',kadi:'bugra',sifre:'yonetici123'})).s===200,'yönetici oluştu');
+ok((await new C().r('/kurulum','POST',{ad:'X',kadi:'x',sifre:'yonetici123'})).s===403,'ikinci kurulum engellendi');
+for(const[kadi,rol]of[['ali','sevkiyat'],['ayse','muhasebe'],['veli','filo']])assert.equal((await y.r('/kullanicilar','POST',{ad:kadi,kadi,sifre:'gecici123',rol})).s,200);
+await y.r('/ayar','PUT',{motorin:45,mobilizToken:'gizli-anahtar-123'});
+await y.put('araclar','a1',{plaka:'34 ABC 101',tip:'Çekici',durum:'Aktif',tuketimDolu:32,tuketimBos:24,muayene:'2027-05-01',trafik:'2027-05-01'});
+await y.put('araclar','a2',{plaka:'34 ABC 102',tip:'Çekici',durum:'Arızalı',tuketimDolu:30,tuketimBos:22});
+await y.put('araclar','a3',{plaka:'34 ABC 103',tip:'Çekici',durum:'Aktif',tuketimDolu:30,muayene:'2026-01-01'});
+await y.put('soforler','s1',{ad:'Mehmet',durum:'Aktif'});
+await y.put('cariler','c1',{unvan:'Gizli Vergi Ltd',tur:'Müşteri',vergiNo:'9876543210',telefon:'05559998877',acilis:777});
+await y.put('fiyatlar','f1',{cariId:'c1',cikis:'İstanbul',varis:'Ankara',km:450,donusKm:460,fiyat:41234});
+await y.put('hareketler','h1',{tarih:'2026-11-01',cariId:'c1',tur:'Tahsilat',tutar:5555,yontem:'Nakit'});
+await y.put('bakimlar','b1',{tarih:'2026-11-01',aracId:'a1',islem:'Yağ',tutar:8642});
+const al=new C();ok((await al.r('/giris','POST',{kadi:'ali',sifre:'gecici123'})).s===200,'sevkiyat girişi');
+const bos={tarih:'2026-11-03',cariId:'c1',cikis:'İstanbul',varis:'Ankara',km:450,donusKm:460,donus:'Boş',aracId:'a1',soforId:'s1',navlun:1,navlunElle:1,giderler:[{tur:'Ceza',tutar:1}]};
+ok((await al.put('seferler','t0',{...bos,donus:''})).s===400,'dönüş seçimi zorunlu');
+ok((await al.put('seferler','tx',{...bos,aracId:'a2'})).s===409,'arızalı araç işe yazılamaz');
+ok((await al.put('seferler','ty',{...bos,aracId:'a3'})).s===409,'muayenesi geçmiş araç işe yazılamaz');
+const t1=await al.put('seferler','t1',bos);ok(t1.s===200,'sevkiyat sefer açtı');
+ok(!/navlun|yakit|41234|giderler/.test(t1.t),'sefer yanıtında para yok');
+const syncA=await al.r('/sync?since=0');
+for(const w of ['41234','navlun','yakit','motorin','5555','8642','9876543210','05559998877','777','gizli-anahtar','Tahsilat','"fiyat"','giderler','kdvOran','tevkifat'])ok(!syncA.t.includes(w),`sevkiyat verisinde yok: ${w}`);
+ok(syncA.t.includes('Gizli Vergi Ltd')&&syncA.t.includes('İstanbul'),'sevkiyat müşteri adı ve güzergâhı görür');
+ok(!syncA.j.me.ekranlar.some(e=>['cari','raporlar','fiyatlar','ayarlar','kullanicilar'].includes(e)),'sevkiyat ekranları kısıtlı');
+for(const[y2,m,b]of[['/yedek','GET'],['/kullanicilar','GET'],['/ayar','PUT',{motorin:1}],['/k/cariler/c9','PUT',{unvan:'x'}],['/k/fiyatlar/f9','PUT',{fiyat:1}],['/k/hareketler/h9','PUT',{tutar:1}],['/eksikleri-hesapla','POST',{}],['/mobiliz/test','POST',{}]])ok((await al.r(y2,m,b)).s===403,`sevkiyat reddedildi: ${m} ${y2}`);
+const adm=(await y.r('/sync?since=0')).j.deg,s1=()=>y.r('/sync?since=0').then(r=>r.j.deg.find(d=>d.id==='t1').data);let s=await s1();
+ok(s.navlun===41234&&!s.navlunElle,'fiyat listeden geldi, sevkiyatın gönderdiği 1 ₺ yok sayıldı');
+ok(!s.giderler&&s.yakit.litre===t(450*.32+460*.24),'sevkiyat gider ekleyemedi; boş dönüş litre doğru');function t(x){return Math.round(x*100)/100}
+ok(s.yakit.tutar===t((450*.32+460*.24)*45),'boş dönüş yakıt tutarı doğru: '+s.yakit.tutar);ok(s.no==='S-2026-0001','sefer no otomatik');
+await y.put('fiyatlar','f1',{cariId:'c1',cikis:'İstanbul',varis:'Ankara',km:450,donusKm:460,fiyat:99999});await y.r('/ayar','PUT',{motorin:60});
+const m=(await al.r('/sync?since=0')).j.deg.find(d=>d.id==='t1').data;
+assert.equal((await al.put('seferler','t1',{...m,durum:'Yolda'})).s,200);s=await s1();
+ok(s.durum==='Yolda'&&s.navlun===41234&&s.yakit.fiyat===45,'durum değişince sabitlenen fiyat ve yakıt korunur');
+ok((await al.put('seferler','t2',{...bos,donus:'Yüklü',durum:'Yolda'})).s===409,'aynı araç iki kez yolda olamaz');
+await y.put('fiyatlar','f1',{cariId:'c1',cikis:'İstanbul',varis:'Ankara',km:450,donusKm:460,fiyat:41234});await y.r('/ayar','PUT',{motorin:45});
+assert.equal((await al.put('seferler','t1',{...m,durum:'Tamamlandı',donus:'Yüklü'})).s,200);s=await s1();
+ok(s.yakit.litre===144&&s.yakit.tutar===6480,'yüklü dönüşte yalnız gidiş yakıtı: '+s.yakit.tutar);ok(s.bitisTarih,'bitiş tarihi işlendi');
+ok((await al.put('seferler','t1',{...m,not:'x'})).s===403,'sevkiyat tamamlanan seferi değiştiremez');
+ok((await al.r('/k/seferler/t1','DELETE')).s===403,'sevkiyat tamamlanan seferi silemez');
+await al.put('seferler','t3',{...bos,cikis:'Hatay',varis:'Van',km:null,donusKm:null,donus:'Yok'});
+let s3=(await y.r('/sync?since=0')).j.deg.find(d=>d.id==='t3').data;ok(s3.fiyatYok&&s3.yakitEksik,'listede yok: fiyat ve yakıt eksik işaretlendi');
+await y.put('fiyatlar','f2',{cariId:'c1',cikis:'Hatay',varis:'Van',km:800,fiyat:70000});
+ok((await y.r('/eksikleri-hesapla','POST',{})).j.n===1,'eksikler yeniden hesaplandı');s3=(await y.r('/sync?since=0')).j.deg.find(d=>d.id==='t3').data;ok(s3.navlun===70000&&s3.yakit.litre===256,'sonradan eklenen fiyatla düzeldi');
+const ay=new C();await ay.r('/giris','POST',{kadi:'ayse',sifre:'gecici123'});const sy=await ay.r('/sync?since=0');ok(sy.t.includes('41234')&&sy.t.includes('9876543210'),'muhasebe parayı görür');ok(!sy.j.me.ekranlar.includes('kullanicilar'),'muhasebe kullanıcı yönetemez');ok((await ay.r('/k/araclar/a9','PUT',{plaka:'x'})).s===403,'muhasebe araç yazamaz');
+const ve=new C();await ve.r('/giris','POST',{kadi:'veli',sifre:'gecici123'});const sv2=await ve.r('/sync?since=0');ok(sv2.t.includes('Yağ')&&!sv2.t.includes('8642'),'filo bakımı görür, tutarı görmez');
+const kl=(await y.r('/kullanicilar')).j.liste.find(u=>u.kadi==='ali');
+await y.r('/kullanicilar/'+kl.id,'PUT',{ad:'ali',rol:'sevkiyat',para:false,ekranlar:['seferler','cari','raporlar'],aktif:true});
+const sg=await al.r('/sync?since=0');ok(!sg.j.me.ekranlar.includes('cari')&&!sg.t.includes('9876543210'),'para yetkisi yokken cari ekranı açılamaz');
+await y.r('/kullanicilar/'+kl.id,'PUT',{ad:'ali',rol:'sevkiyat',aktif:false});ok((await al.r('/sync')).s===401,'kapatılan hesabın oturumu düştü');
+const me=(await y.r('/sync')).j.me;ok((await y.r('/kullanicilar/'+me.id,'PUT',{ad:'B',rol:'sevkiyat'})).s===400,'yönetici kendi yetkisini kapatamaz');
+const k=new C();for(let i=0;i<5;i++)await k.r('/giris','POST',{kadi:'ayse',sifre:'yanlis'});ok((await k.r('/giris','POST',{kadi:'ayse',sifre:'gecici123'})).s===429,'5 yanlış denemede kilit');
+ok((await y.r('/mobiliz/yenile','POST',{})).j.arac===1,'Mobiliz konumu alındı (sahte sunucu)');const sk=await y.r('/sync?since=0');ok(sk.t.includes('Sakarya')&&!sk.t.includes('gizli-anahtar'),'konum geldi, anahtar sızmadı');
+const yd=await y.r('/yedek');ok(!yd.t.includes('gizli-anahtar'),'yedekte anahtar yok');
+console.log('TAMAM',n,'kontrol');
+}catch(e){console.error('HATA',e.message);process.exitCode=1}finally{sv.kill();fake.close()}
