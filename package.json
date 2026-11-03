@@ -1,0 +1,9 @@
+{
+  "name": "sefer-defteri",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "deploy": "wrangler deploy", "yerel": "node dev/server.mjs" },
+  "devDependencies": { "wrangler": "^4" },
+  "engines": { "node": ">=22" }
+}
